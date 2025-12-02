@@ -54,4 +54,4 @@ const toolsByName = {
 };
 const tools = Object.values(toolsByName);
 const modelWithTools = model.bindTools(tools);
-export { modelWithTools, toolsByName };
+export { modelWithTools, toolsByName, model };

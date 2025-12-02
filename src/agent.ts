@@ -1,6 +1,10 @@
 import { StateGraph, START, END } from "@langchain/langgraph";
-import { MessagesState } from "./utils/state.js";
+import { PentestState, routeSchema } from "./utils/state.js";
 import { llmCall, toolNode, shouldContinue } from "./utils/nodes.js";
+import { HumanMessage } from "@langchain/core/messages";
+import { modelWithTools, model } from "./utils/tools.js";
+import { z } from "zod";
+import * as fs from "node:fs/promises";
 
 
 const agent = new StateGraph(MessagesState)
@@ -12,11 +16,59 @@ const agent = new StateGraph(MessagesState)
   .compile();
 
 // Invoke
-import { HumanMessage } from "@langchain/core/messages";
+
 const result = await agent.invoke({
   messages: [new HumanMessage("Add 3 and 4.")],
 });
 
 for (const message of result.messages) {
-  console.log(`[${message.getType()}]: ${message.text}`);
+  console.log(`[${message.type}]: ${message.text}`);
 }
+
+
+
+// Augment the LLM with schema for structured output
+const router = model.withStructuredOutput(routeSchema);
+
+
+async function llmRouter(state: z.infer<typeof PentestState>){
+  const attackVector = await router.invoke([
+    {
+      role: "system",
+      content: "Route the input to story, joke, or poem based on the user's request."
+    },
+    {
+      role: "user",
+      content: state.messages.map((msg) => msg.text).join("\n")
+    }
+  ])
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+const drawableGraph = await agent.getGraphAsync();
+const image = await drawableGraph.drawMermaidPng();
+const imageBuffer = new Uint8Array(await image.arrayBuffer());
+
+await fs.writeFile("graph.png", imageBuffer);
