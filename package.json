@@ -10,9 +10,13 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@langchain/anthropic": "^1.2.3",
     "@langchain/core": "^1.1.0",
     "@langchain/google-genai": "^2.0.0",
     "@langchain/langgraph": "^1.0.2",
+    "@langchain/mcp-adapters": "^1.1.0",
+    "@modelcontextprotocol/sdk": "^1.24.3",
+    "dotenv": "^17.2.3",
     "zod": "^4.1.13"
   }
 }

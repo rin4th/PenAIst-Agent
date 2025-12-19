@@ -1,57 +1,85 @@
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai"
-import { HarmBlockThreshold, HarmCategory } from "@google/generative-ai";
+import { ChatAnthropic } from "@langchain/anthropic";
+import dotenv from 'dotenv';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { MultiServerMCPClient } from "@langchain/mcp-adapters";
+import { ToolNode, toolsCondition } from "@langchain/langgraph/prebuilt";
 
 
 
-import { tool } from "@langchain/core/tools";
-import * as z from "zod";
+dotenv.config();
 
-const model = new ChatGoogleGenerativeAI({
-    model: "gemini-2.5-pro",
-    temperature: 0,
-    maxRetries: 2,
-    safetySettings: [
-    {
-      category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-      threshold: HarmBlockThreshold.BLOCK_NONE,
-    },
-  ],
+const model = new ChatAnthropic({
+  model: "claude-sonnet-4-5-20250929",
+  temperature: 0,
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY,
 })
 
 // Define tools
-const add = tool(({ a, b }) => a + b, {
-  name: "add",
-  description: "Add two numbers",
-  schema: z.object({
-    a: z.number().describe("First number"),
-    b: z.number().describe("Second number"),
-  }),
-});
 
-const multiply = tool(({ a, b }) => a * b, {
-  name: "multiply",
-  description: "Multiply two numbers",
-  schema: z.object({
-    a: z.number().describe("First number"),
-    b: z.number().describe("Second number"),
-  }),
+const mcp = new MultiServerMCPClient({
+  burp: { transport: "sse", url: "http://127.0.0.1:9876" },
 });
+const tools = await mcp.getTools();
+const toolNode = new ToolNode(tools);
 
-const divide = tool(({ a, b }) => a / b, {
-  name: "divide",
-  description: "Divide two numbers",
-  schema: z.object({
-    a: z.number().describe("First number"),
-    b: z.number().describe("Second number"),
-  }),
-});
+async function extractHttpResponse(result: any): {
+  statusCode: string;
+  header: Record<string, string>;
+  body: Record<string, any>;
+} | null {
+  const raw =
+    typeof result?.text === "string"
+      ? result.text
+      : typeof result === "string"
+      ? result
+      : Array.isArray(result?.content)
+      ? result.content.map((c: any) => c?.text ?? "").join("")
+      : typeof result?.content === "string"
+      ? result.content
+      : null;
 
-// Augment the LLM with tools
-const toolsByName = {
-  [add.name]: add,
-  [multiply.name]: multiply,
-  [divide.name]: divide,
-};
-const tools = Object.values(toolsByName);
-const modelWithTools = model.bindTools(tools);
-export { modelWithTools, toolsByName, model };
+  if (!raw) return null;
+
+  const marker = "httpResponse=";
+  const i = raw.indexOf(marker);
+  if (i === -1) return null;
+
+  const http = raw.slice(i + marker.length).trim();
+
+  const [head, ...rest] = http.split("\r\n\r\n");
+  const bodyText = rest.join("\r\n\r\n").trim();
+
+  const statusLine = head.split("\r\n")[0] ?? "";
+  const statusCode = statusLine.split(" ")[1] ?? "N/A";
+
+  const headerLines = head.split("\r\n").slice(1);
+  const headerObj: Record<string, string> = {};
+  for (const line of headerLines) {
+    const idx = line.indexOf(":");
+    if (idx === -1) continue;
+    const k = line.slice(0, idx).trim();
+    const v = line.slice(idx + 1).trim();
+    if (k) headerObj[k] = v;
+  }
+
+  let bodyObj: any = {};
+  if (bodyText) {
+    try {
+      const parsed = JSON.parse(bodyText);
+      bodyObj = typeof parsed === "object" && parsed !== null ? parsed : { value: parsed };
+    } catch {
+      bodyObj = { raw: bodyText };
+    }
+  }
+
+  return {
+    statusCode: String(statusCode),
+    header: headerObj,
+    body: bodyObj,
+  };
+}
+
+
+
+export { tools, toolNode, model, extractHttpResponse };
